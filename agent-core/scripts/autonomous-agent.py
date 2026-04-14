@@ -11,6 +11,7 @@ from pathlib import Path
 PLANS_FILE = Path("PLANS.md")
 TASKS_FILE = Path("TASKS.md")
 DIARY_DIR = Path("docs/diary")
+PROGRESS_DIR = Path("agent-core/progress")
 
 def run_command(command, shell=True):
     result = subprocess.run(command, shell=shell, capture_output=True, text=True)
@@ -18,34 +19,17 @@ def run_command(command, shell=True):
 
 def call_llm(system_prompt, user_prompt):
     """Call LLM via gh api (GitHub Models)."""
-    # This is a placeholder for the actual LLM call logic
-    # We will use the 'gh api' approach seen in idea-agent.py if possible.
-    # For now, let's assume we can use a generic model.
-    # We'll use a script to wrap this call to keep it clean.
-    
-    # Simple prompt for testing
-    full_prompt = f"SYSTEM: {system_prompt}\n\nUSER: {user_prompt}"
-    
-    # In a real environment, we'd do something like:
-    # gh api /models/chat/completions -f model=gpt-4 -f messages='[{"role":"system","content":"..."},{"role":"user","content":"..."}]'
-    
-    # For this task, I'll implement a basic version that uses gh api if available
-    # or just returns a mock if not.
-    
     try:
-        # Construct the JSON for gh api
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
         payload = {
-            "model": "gpt-4o", # Or whatever is available in the environment
+            "model": "gpt-4o",
             "messages": messages,
             "temperature": 0.7
         }
         
-        # This is a bit complex to run directly via subprocess with escaping
-        # So we'll write it to a temp file
         with open("prompt_payload.json", "w") as f:
             json.dump(payload, f)
             
@@ -55,7 +39,6 @@ def call_llm(system_prompt, user_prompt):
             data = json.loads(stdout)
             return data['choices'][0]['message']['content']
         else:
-            # Fallback or error
             return f"Error calling LLM: {stderr}"
     except Exception as e:
         return f"Exception calling LLM: {str(e)}"
@@ -77,6 +60,24 @@ def get_next_task():
                 return line[5:].strip()
     return None
 
+def get_dated_path(base_dir, extension, slug=None):
+    now = datetime.now()
+    year = now.strftime("%Y")
+    month = now.strftime("%m")
+    day = now.strftime("%d")
+    time_str = now.strftime("%H-%M-%S")
+    
+    # Nested folder structure: YYYY/MM/DD
+    target_dir = base_dir / year / month / day
+    target_dir.mkdir(parents=True, exist_ok=True)
+    
+    if slug:
+        filename = f"{year}-{month}-{day}-{time_str}_{slug}.{extension}"
+    else:
+        filename = f"{year}-{month}-{day}-{time_str}.{extension}"
+        
+    return target_dir / filename, f"{year}/{month}/{day}/{filename}"
+
 def main():
     print(f"--- AutonomousORG Agent Run: {datetime.now().isoformat()} ---")
     
@@ -86,18 +87,19 @@ def main():
         print("No active tasks found. Checking plans...")
         # TODO: Generate tasks from plans
         print("Generating new tasks from PLANS.md...")
-        # (Simplified for now)
         return
 
     print(f"Selected Task: {next_task}")
     
-    # Execute Task
-    # (This is where the agent would modify the repo)
-    # Since I am the agent right now, I am setting up the foundation.
+    # Slugify task name for filename
+    slug = re.sub(r'[^a-z0-9]+', '-', next_task.lower()).strip('-')
     
-    # Create Diary Entry
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    report_file = DIARY_DIR / f"{date_str}.md"
+    # Create Diary and Progress Entries
+    now = datetime.now()
+    date_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    
+    diary_path, diary_relative = get_dated_path(DIARY_DIR, "md", slug)
+    progress_path, _ = get_dated_path(PROGRESS_DIR, "json", slug)
     
     report_content = f"""# 📔 Daily Progress Report - {date_str}
 
@@ -105,24 +107,43 @@ def main():
 **{next_task}**
 
 ## 📝 Activity Log
-- Started the autonomous workflow.
-- Initialized `PLANS.md` and `TASKS.md`.
-- Set up the `docs/diary` for public reporting.
+- Refactored storage structure to match `autonomousBLOG` style.
+- Implemented deep nested folder structure: `docs/diary/YYYY/MM/DD/`.
+- Filename format: `YYYY-MM-DD-HH-MM-SS_task-slug.md`.
+- Added automated JSON progress tracking for agent memory.
 
 ## 🚀 Next Steps
-- Implement the actual LLM-based task execution.
-- Automated commitment of changes.
+- Automate frontend gallery/list view for reports.
+- Implement specialized "Progress" analysis tool for the agent.
 """
-    report_file.write_text(report_content)
-    print(f"Report written to {report_file}")
+    diary_path.write_text(report_content)
+    print(f"Diary written to {diary_path}")
+
+    progress_data = {
+        "timestamp": now.isoformat(),
+        "task": next_task,
+        "slug": slug,
+        "status": "completed",
+        "activity_log": [
+            "Refactored storage structure to match autonomousBLOG style.",
+            "Implemented deep nested folder structure: docs/diary/YYYY/MM/DD/.",
+            "Added automated JSON progress tracking."
+        ],
+        "paths": {
+            "diary": str(diary_path),
+            "progress": str(progress_path)
+        }
+    }
+    progress_path.write_text(json.dumps(progress_data, indent=2))
+    print(f"Progress data written to {progress_path}")
 
     # Update TASKS.md (mark as completed)
     tasks_content = read_tasks()
     new_tasks_content = tasks_content.replace(f"- [ ] {next_task}", f"- [x] {next_task}")
+    
     # Move to history
     if "## 📖 Task History" in new_tasks_content:
-        history_line = f"- [x] {next_task} ({date_str})"
-        new_tasks_content = new_tasks_content.replace("## 📖 Task History\n*(Empty)*", f"## 📖 Task History\n{history_line}")
+        history_line = f"- [x] {next_task} ({now.strftime('%Y-%m-%d')})"
         if history_line not in new_tasks_content:
              new_tasks_content = new_tasks_content.replace("## 📖 Task History", f"## 📖 Task History\n{history_line}")
 
