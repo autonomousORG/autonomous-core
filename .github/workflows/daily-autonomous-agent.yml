@@ -1,0 +1,70 @@
+name: 🤖 Daily Autonomous Agent
+
+on:
+  schedule:
+    # Run daily at 12:34 UTC
+    - cron: "34 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+  pages: write
+  id-token: write
+
+jobs:
+  autonomous-run:
+    name: "Autonomous Run"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Authenticate GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh auth status
+
+      - name: Run Autonomous Agent
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x agent-core/scripts/autonomous-agent.py
+          python3 agent-core/scripts/autonomous-agent.py
+
+      - name: Update Diary Index
+        run: |
+          # Simple script to update index.html with new diary links
+          DIARY_LIST=""
+          for f in $(ls -r docs/diary/*.md); do
+            DATE=$(basename $f .md)
+            DIARY_LIST="$DIARY_LIST<li class='diary-item'><a href='https://github.com/${{ github.repository }}/blob/main/docs/diary/$DATE.md'>$DATE - Daily Report</a></li>"
+          done
+          
+          # Replace the placeholder in index.html
+          # Note: This is a hacky way to do it, but works for a single file.
+          # A better way would be a small python script.
+          sed -i "/<!-- Diary entries will be auto-generated here -->/c\\$DIARY_LIST" docs/index.html
+
+      - name: Commit & Push Changes
+        run: |
+          git config user.name "autonomous-agent[bot]"
+          git config user.email "agent@autonomousorg.com"
+          
+          git add PLANS.md TASKS.md docs/diary/*.md docs/index.html
+          
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          
+          git commit -m "🤖 Agent: Daily Autonomous Task Completion ($(date +%Y-%m-%d))"
+          git push
