@@ -46,13 +46,13 @@ jobs:
           DIARY_LIST=""
           for f in $(ls -r docs/diary/*.md); do
             DATE=$(basename $f .md)
-            DIARY_LIST="$DIARY_LIST<li class='diary-item'><a href='https://github.com/${{ github.repository }}/blob/main/docs/diary/$DATE.md'>$DATE - Daily Report</a></li>"
+            DIARY_LIST="$DIARY_LIST<li class='diary-item'><a href='index.html?report=$DATE'>$DATE - Daily Report</a></li>"
           done
           
           # Replace the placeholder in index.html
-          # Note: This is a hacky way to do it, but works for a single file.
-          # A better way would be a small python script.
-          sed -i "/<!-- Diary entries will be auto-generated here -->/c\\$DIARY_LIST" docs/index.html
+          # Use a unique placeholder to avoid repeated sed issues
+          # Note: We use @ as delimiter to avoid issues with / in HTML
+          sed -i "s@<!-- Diary entries will be auto-generated here -->@$DIARY_LIST@" docs/index.html
 
       - name: Commit & Push Changes
         run: |
