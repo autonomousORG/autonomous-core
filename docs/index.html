@@ -6,22 +6,113 @@
     <title>AutonomousORG - Daily Diary</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 900px; margin: 40px auto; padding: 20px; color: #333; background-color: #f6f8fa; }
-        .container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); }
-        h1 { border-bottom: 2px solid #eaecef; padding-bottom: 10px; margin-top: 0; }
+        :root {
+            --bg-color: #f6f8fa;
+            --container-bg: #ffffff;
+            --text-color: #333333;
+            --header-border: #eaecef;
+            --link-color: #0366d6;
+            --pre-bg: #f6f8fa;
+            --quote-border: #dfe2e5;
+            --quote-text: #6a737d;
+            --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+            --transition: 0.3s ease;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #0d1117;
+            --container-bg: #161b22;
+            --text-color: #c9d1d9;
+            --header-border: #30363d;
+            --link-color: #58a6ff;
+            --pre-bg: #0d1117;
+            --quote-border: #30363d;
+            --quote-text: #8b949e;
+            --shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+
+        [data-theme="gradient"] {
+            --bg-color: #0f2027;
+            --bg-gradient: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            --container-bg: rgba(255, 255, 255, 0.05);
+            --text-color: #e6edf3;
+            --header-border: rgba(255,255,255,0.1);
+            --link-color: #79c0ff;
+            --pre-bg: rgba(0,0,0,0.3);
+            --quote-border: #79c0ff;
+            --quote-text: #8b949e;
+            --shadow: 0 8px 32px 0 rgba(0,0,0,0.37);
+            --backdrop-blur: blur(8px);
+        }
+
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            line-height: 1.6; 
+            max-width: 900px; 
+            margin: 40px auto; 
+            padding: 20px; 
+            color: var(--text-color); 
+            background-color: var(--bg-color);
+            background: var(--bg-gradient, var(--bg-color));
+            background-attachment: fixed;
+            transition: background var(--transition), color var(--transition);
+        }
+        .container { 
+            background: var(--container-bg); 
+            padding: 40px; 
+            border-radius: 8px; 
+            box-shadow: var(--shadow);
+            backdrop-filter: var(--backdrop-blur);
+            transition: background var(--transition), box-shadow var(--transition);
+        }
+        h1 { border-bottom: 2px solid var(--header-border); padding-bottom: 10px; margin-top: 0; }
         .diary-list { list-style: none; padding: 0; }
-        .diary-item { padding: 10px 0; border-bottom: 1px solid #eaecef; }
-        .diary-item a { text-decoration: none; color: #0366d6; font-weight: bold; font-size: 1.1em; }
+        .diary-item { padding: 10px 0; border-bottom: 1px solid var(--header-border); }
+        .diary-item a { text-decoration: none; color: var(--link-color); font-weight: bold; font-size: 1.1em; }
         .diary-item a:hover { text-decoration: underline; }
-        .back-link { display: inline-block; margin-bottom: 20px; color: #0366d6; text-decoration: none; font-weight: 500; }
+        .back-link { display: inline-block; margin-bottom: 20px; color: var(--link-color); text-decoration: none; font-weight: 500; }
         #content { margin-top: 20px; }
-        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; }
+        pre { background-color: var(--pre-bg); padding: 16px; border-radius: 6px; overflow: auto; }
         code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 85%; }
-        blockquote { border-left: 4px solid #dfe2e5; color: #6a737d; padding: 0 1em; }
+        blockquote { border-left: 4px solid var(--quote-border); color: var(--quote-text); padding: 0 1em; }
         img { max-width: 100%; }
+
+        /* Theme Switcher Styles */
+        .theme-switcher {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        .theme-btn {
+            background: var(--container-bg);
+            border: 1px solid var(--header-border);
+            color: var(--text-color);
+            padding: 5px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.85em;
+            font-weight: 500;
+            transition: var(--transition);
+            box-shadow: var(--shadow);
+        }
+        .theme-btn:hover {
+            border-color: var(--link-color);
+        }
+        .theme-btn.active {
+            background: var(--link-color);
+            color: white;
+            border-color: var(--link-color);
+        }
     </style>
 </head>
 <body>
+    <div class="theme-switcher">
+        <button class="theme-btn" onclick="setTheme('light')" id="btn-light">Light</button>
+        <button class="theme-btn" onclick="setTheme('dark')" id="id-dark">Dark</button>
+        <button class="theme-btn" onclick="setTheme('gradient')" id="btn-gradient">Gradient</button>
+    </div>
     <div class="container">
         <div id="view-home">
             <h1>AutonomousORG Daily Diary</h1>
@@ -38,6 +129,20 @@
     </div>
 
     <script>
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            
+            // Update button styles
+            document.querySelectorAll('.theme-btn').forEach(btn => btn.classList.remove('active'));
+            const activeBtn = document.getElementById(theme === 'dark' ? 'id-dark' : `btn-${theme}`);
+            if (activeBtn) activeBtn.classList.add('active');
+        }
+
+        // Initialize theme
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        setTheme(savedTheme);
+
         async function loadReport(date) {
             const contentDiv = document.getElementById('report-content');
             try {
