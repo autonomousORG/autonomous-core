@@ -38,7 +38,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           chmod +x agent-core/scripts/autonomous-agent.py
-          python3 agent-core/scripts/autonomous-agent.py
+          python3 agent-core/scripts/autonomous-agent.py 2>&1 | tee /tmp/agent-output.txt
+          # Extract selected model from output
+          grep "Selected model:" /tmp/agent-output.txt | awk '{print $NF}' > /tmp/selected-model.txt || true
 
       - name: Update Diary Index
         run: |
@@ -48,7 +50,7 @@ jobs:
             DATE=$(basename $f .md)
             DIARY_LIST="$DIARY_LIST<li class='diary-item'><a href='index.html?report=$DATE'>$DATE - Daily Report</a></li>"
           done
-          
+
           # Replace the placeholder in index.html
           # Use a unique placeholder to avoid repeated sed issues
           # Note: We use @ as delimiter to avoid issues with / in HTML
@@ -56,15 +58,22 @@ jobs:
 
       - name: Commit & Push Changes
         run: |
-          git config user.name "autonomous-agent[bot]"
-          git config user.email "agent@autonomousorg.com"
-          
+          if [ -f /tmp/selected-model.txt ] && [ -s /tmp/selected-model.txt ]; then
+            SELECTED_MODEL=$(cat /tmp/selected-model.txt)
+            MODEL_NAME=$(echo "$SELECTED_MODEL" | tr '/' '-')
+          else
+            MODEL_NAME="autonomous-agent"
+          fi
+
+          git config user.name "$MODEL_NAME (Autonomous Agent)"
+          git config user.email "$MODEL_NAME@autonomousorg.com"
+
           git add PLANS.md TASKS.md docs/diary/*.md docs/index.html
-          
+
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
-          
-          git commit -m "🤖 Agent: Daily Autonomous Task Completion ($(date +%Y-%m-%d))"
+
+          git commit -m "🤖 $MODEL_NAME: Daily Autonomous Task ($(date +%Y-%m-%d))"
           git push

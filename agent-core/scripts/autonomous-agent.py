@@ -194,14 +194,16 @@ def commit_changes(message):
 def main():
     print(f"--- AutonomousORG Agent Run: {datetime.now().isoformat()} ---")
     
-    # Display available models and select one
+    # Display available models and select one FIRST
     models = get_available_models()
     selected_model = select_model()
+    
+    # Print selected model early so workflow can capture it
+    print(f"Selected model: {selected_model}")
     
     if models:
         print(f"Available models: {len(models)} models found")
         print(f"Using selection strategy: {MODEL_SELECTION_STRATEGY}")
-        print(f"Selected model: {selected_model}")
     else:
         print("Warning: Could not fetch available models list")
     
