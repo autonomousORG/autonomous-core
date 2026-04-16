@@ -1,4 +1,4 @@
-# 📋 AutonomousORG Task Board
+# 📋 V-Loop Task Board
 
 This document tracks the granular tasks derived from the Strategic Plans.
 The agent picks **one task per day** to execute.

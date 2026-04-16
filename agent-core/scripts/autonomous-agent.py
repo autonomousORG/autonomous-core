@@ -359,7 +359,7 @@ def finalize_task(task, status, report):
 # --- Main Loop ---
 
 def main():
-    log("AutonomousORG Agent starting.")
+    log("V-Loop Agent starting.")
     
     model = select_model()
     log(f"Selected model: {model}")
@@ -367,7 +367,7 @@ def main():
     # Configure local git identity for this agent session
     model_name = model.replace("/", "-")
     run_command(f'git config --local user.name "{model_name} (Autonomous Agent)"')
-    run_command(f'git config --local user.email "{model_name}@autonomousorg.com"')
+    run_command(f'git config --local user.email "{model_name}@v-loop.local"')
 
     task = get_next_task()
     if not task:

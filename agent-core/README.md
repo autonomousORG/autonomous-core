@@ -1,6 +1,6 @@
 # 🧠 Agent Core
 
-This directory contains the brains and tools of the **AutonomousORG** agent.
+This directory contains the brains and tools of the **V-Loop** agent.
 
 ## 📁 Structure
 - `scripts/`: Implementation of the autonomous agent.

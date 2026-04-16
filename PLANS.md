@@ -1,6 +1,6 @@
-# 🎯 AutonomousORG Strategic Plans
+# 🎯 V-Loop Strategic Plans
 
-This document outlines the high-level strategic plans for **autonomousORG**.
+This document outlines the high-level strategic plans for **v-loop**.
 The autonomous agent will generate new plans here when all existing ones are completed.
 
 ## 🏁 Current Plans
