@@ -364,10 +364,6 @@ def main():
     model = select_model()
     log(f"Selected model: {model}")
     
-    # Identity
-    run_command(f'git config user.name "{model.split("/")[-1]} (Autonomous Agent)"')
-    run_command(f'git config user.email "agent@autonomousorg.com"')
-
     task = get_next_task()
     if not task:
         log("No active tasks found.")
