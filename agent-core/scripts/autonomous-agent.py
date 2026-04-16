@@ -4,55 +4,58 @@ import sys
 import json
 import subprocess
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
-# Paths
+# --- Configuration ---
 PLANS_FILE = Path("PLANS.md")
 TASKS_FILE = Path("TASKS.md")
 DIARY_DIR = Path("docs/diary")
-PROGRESS_DIR = Path("agent-core/progress")
+PROMPT_FILE = Path("agent-core/agent-prompt.md")
 
-# Model selection configuration
-MODEL_SELECTION_STRATEGY = os.environ.get("MODEL_SELECTION_STRATEGY", "first_openai")
+# Model selection strategy: first_openai, cheapest, most_capable, or a specific model string
+MODEL_STRATEGY = os.environ.get("MODEL_SELECTION_STRATEGY", "first_openai")
+MAX_TURNS = int(os.environ.get("MAX_TURNS", "20"))
+API_ENDPOINT = "https://models.github.ai/inference/chat/completions"
+
+# --- Utilities ---
+
+def log(msg):
+    """Pi-mono style concise logging."""
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
 def run_command(command, shell=True):
     result = subprocess.run(command, shell=shell, capture_output=True, text=True)
     return result.stdout.strip(), result.stderr.strip(), result.returncode
 
-
 def get_available_models():
     """Fetch available models from GitHub Models API using gh models CLI."""
     try:
-        result = subprocess.run(
-            ["gh", "models", "list"],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        if result.returncode != 0:
+        stdout, stderr, code = run_command("gh models list")
+        if code != 0:
+            log(f"Warning: gh models list failed: {stderr}")
             return []
+        
         models = []
-        for line in result.stdout.strip().split('\n'):
+        for line in stdout.split('\n'):
             parts = line.split()
             if parts and '/' in parts[0]:
                 models.append(parts[0])
         return models
-    except Exception:
+    except Exception as e:
+        log(f"Exception fetching models: {str(e)}")
         return []
 
-
-def select_model(strategy=None):
-    """Select a model based on a strategy."""
-    if strategy is None:
-        strategy = MODEL_SELECTION_STRATEGY
-    
+def select_model(strategy=MODEL_STRATEGY):
+    """Select a model based on strategy or use environment override."""
     env_model = os.environ.get("AGENT_MODEL")
     if env_model:
         return env_model
     
     models = get_available_models()
     if not models:
+        # Fallback if gh models list fails or returns empty
         return "openai/gpt-4o-mini"
     
     if strategy == "first":
@@ -69,182 +72,366 @@ def select_model(strategy=None):
                     return m
         return models[0]
     elif strategy == "most_capable":
-        for p in ["gpt-5", "gpt-4.1", "gpt-4o"]:
+        for p in ["gpt-4o", "gpt-4", "claude-3-5-sonnet"]:
             for m in models:
                 if p in m.lower():
                     return m
         return models[0]
     else:
+        # Default to the first available model
         return models[0]
 
+# --- Core Tools (pi-mono style) ---
 
-def configure_git_identity(model_name):
-    """Configure git committer identity to show which AI model made the commit."""
-    model_display = model_name.replace("/", "-")
-    committer_name = f"{model_display} (Autonomous Agent)"
-    committer_email = f"{model_display}@autonomousorg.com"
-    run_command(f'git config user.name "{committer_name}"')
-    run_command(f'git config user.email "{committer_email}"')
-
-
-def commit_changes(message):
-    """Stage and commit all changes."""
-    run_command("git add -A")
-    run_command(f'git commit -m "{message}"')
-
-
-def call_llm(system_prompt, user_prompt, model=None):
-    """Call LLM via GitHub Models API with dynamic model selection."""
-    if model is None:
-        model = select_model(MODEL_SELECTION_STRATEGY)
-    print(f"Using model: {model}", file=sys.stderr)
-    
+def tool_read_file(path):
+    """Read file content."""
     try:
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": 0.7
-        }
-        payload_file = "/tmp/gh_model_payload.json"
-        with open(payload_file, "w") as f:
-            json.dump(payload, f)
-
-        api_endpoint = "https://models.github.ai/inference/chat/completions"
-        stdout, stderr, code = run_command(
-            f"gh api {api_endpoint} --method POST --input {payload_file}"
-        )
-
-        if code == 0:
-            data = json.loads(stdout)
-            return data['choices'][0]['message']['content']
-        else:
-            return f"Error calling LLM: {stderr}"
+        p = Path(path)
+        if not p.exists():
+            return f"Error: {path} not found."
+        return p.read_text()
     except Exception as e:
-        return f"Exception calling LLM: {str(e)}"
+        return f"Error: {str(e)}"
 
-def read_plans():
-    return PLANS_FILE.read_text()
+def tool_write_file(path, content):
+    """Overwrite or create file."""
+    try:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+        return f"Success: Wrote to {path}"
+    except Exception as e:
+        return f"Error: {str(e)}"
 
-def read_tasks():
-    return TASKS_FILE.read_text()
-
-def get_next_task():
-    tasks_content = read_tasks()
-    # Find the first uncompleted task under "Active Tasks"
-    match = re.search(r"## 🚀 Active Tasks\n(.*?)\n##", tasks_content, re.DOTALL)
-    if match:
-        tasks_list = match.group(1).strip().split("\n")
-        for line in tasks_list:
-            if line.startswith("- [ ]"):
-                return line[5:].strip()
-    return None
-
-def get_dated_path(base_dir, extension, slug=None):
-    now = datetime.now()
-    year = now.strftime("%Y")
-    month = now.strftime("%m")
-    day = now.strftime("%d")
-    time_str = now.strftime("%H-%M-%S")
-    
-    # Nested folder structure: YYYY/MM/DD
-    target_dir = base_dir / year / month / day
-    target_dir.mkdir(parents=True, exist_ok=True)
-    
-    if slug:
-        filename = f"{year}-{month}-{day}-{time_str}_{slug}.{extension}"
-    else:
-        filename = f"{year}-{month}-{day}-{time_str}.{extension}"
+def tool_edit_file(path, old, new):
+    """Surgical edit via exact string replacement."""
+    try:
+        p = Path(path)
+        if not p.exists():
+            return f"Error: {path} not found."
+        content = p.read_text()
+        if old not in content:
+            return f"Error: Exact match not found in {path}"
+        if content.count(old) > 1:
+            return f"Error: Multiple matches for 'old' string in {path}. Provide more context."
         
-    return target_dir / filename, f"{year}/{month}/{day}/{filename}"
+        p.write_text(content.replace(old, new))
+        return f"Success: Updated {path}"
+    except Exception as e:
+        return f"Error: {str(e)}"
 
-def main():
-    print(f"--- AutonomousORG Agent Run: {datetime.now().isoformat()} ---")
+def tool_bash(command):
+    """Run shell command."""
+    stdout, stderr, code = run_command(command)
+    return json.dumps({"stdout": stdout, "stderr": stderr, "exit_code": code}, indent=2)
 
-    # Select model and configure git identity
-    models = get_available_models()
-    selected_model = select_model()
-    print(f"Selected model: {selected_model}")
-    if models:
-        print(f"Available models: {len(models)}")
-        print(f"Strategy: {MODEL_SELECTION_STRATEGY}")
-    
-    configure_git_identity(selected_model)
+def tool_grep(pattern, path=".", include=None):
+    """Search for pattern in files."""
+    cmd = f'grep -r "{pattern}" "{path}"'
+    if include:
+        cmd += f' --include="{include}"'
+    stdout, stderr, code = run_command(cmd)
+    return stdout if code == 0 else f"No matches found. {stderr}"
 
-    next_task = get_next_task()
+def tool_find(name, path="."):
+    """Find files by name."""
+    stdout, stderr, code = run_command(f'find "{path}" -name "{name}"')
+    return stdout if code == 0 else f"Not found. {stderr}"
 
-    if not next_task:
-        print("No active tasks found. Checking plans...")
-        # TODO: Generate tasks from plans
-        print("Generating new tasks from PLANS.md...")
-        return
+def tool_list_files(path="."):
+    """List files recursively."""
+    files = []
+    try:
+        for root, _, filenames in os.walk(path):
+            if ".git" in root or "__pycache__" in root:
+                continue
+            for f in filenames:
+                files.append(os.path.relpath(os.path.join(root, f), path))
+        return "\n".join(sorted(files))
+    except Exception as e:
+        return f"Error: {str(e)}"
 
-    print(f"Selected Task: {next_task}")
-    
-    # Slugify task name for filename
-    slug = re.sub(r'[^a-z0-9]+', '-', next_task.lower()).strip('-')
-    
-    # Create Diary and Progress Entries
-    now = datetime.now()
-    date_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    diary_path, diary_relative = get_dated_path(DIARY_DIR, "md", slug)
-    progress_path, _ = get_dated_path(PROGRESS_DIR, "json", slug)
-    
-    report_content = f"""# 📔 Daily Progress Report - {date_str}
+def tool_finish(report, status="completed"):
+    """Complete task and submit report."""
+    return f"FINISH:{status}:{report}"
 
-## 🎯 Task of the Day
-**{next_task}**
+TOOLS = {
+    "read_file": tool_read_file,
+    "write_file": tool_write_file,
+    "edit_file": tool_edit_file,
+    "bash": tool_bash,
+    "grep": tool_grep,
+    "find": tool_find,
+    "list_files": tool_list_files,
+    "finish": tool_finish
+}
 
-## 📝 Activity Log
-- Refactored storage structure to match `autonomousBLOG` style.
-- Implemented deep nested folder structure: `docs/diary/YYYY/MM/DD/`.
-- Filename format: `YYYY-MM-DD-HH-MM-SS_task-slug.md`.
-- Added automated JSON progress tracking for agent memory.
-
-## 🚀 Next Steps
-- Automate frontend gallery/list view for reports.
-- Implement specialized "Progress" analysis tool for the agent.
-"""
-    diary_path.write_text(report_content)
-    print(f"Diary written to {diary_path}")
-
-    progress_data = {
-        "timestamp": now.isoformat(),
-        "task": next_task,
-        "slug": slug,
-        "status": "completed",
-        "activity_log": [
-            "Refactored storage structure to match autonomousBLOG style.",
-            "Implemented deep nested folder structure: docs/diary/YYYY/MM/DD/.",
-            "Added automated JSON progress tracking."
-        ],
-        "paths": {
-            "diary": str(diary_path),
-            "progress": str(progress_path)
+TOOL_DEFS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read content of a file.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Create or overwrite a file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"}
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": "Surgically edit a file via exact string replacement.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "old": {"type": "string", "description": "The exact string to be replaced."},
+                    "new": {"type": "string", "description": "The new string."}
+                },
+                "required": ["path", "old", "new"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bash",
+            "description": "Run a shell command.",
+            "parameters": {
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "grep",
+            "description": "Search for pattern in files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string"},
+                    "path": {"type": "string", "default": "."},
+                    "include": {"type": "string", "description": "Glob pattern for files to include."}
+                },
+                "required": ["pattern"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find",
+            "description": "Find files by name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "path": {"type": "string", "default": "."}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List files in directory.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "default": "."}}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "finish",
+            "description": "Submit report and end session.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "report": {"type": "string", "description": "Technical summary of work done."},
+                    "status": {"type": "string", "enum": ["completed", "failed", "partially_completed"], "default": "completed"}
+                },
+                "required": ["report"]
+            }
         }
     }
-    progress_path.write_text(json.dumps(progress_data, indent=2))
-    print(f"Progress data written to {progress_path}")
+]
 
-    # Update TASKS.md (mark as completed)
-    tasks_content = read_tasks()
-    new_tasks_content = tasks_content.replace(f"- [ ] {next_task}", f"- [x] {next_task}")
-    
-    # Move to history
-    if "## 📖 Task History" in new_tasks_content:
-        history_line = f"- [x] {next_task} ({now.strftime('%Y-%m-%d')})"
-        if history_line not in new_tasks_content:
-             new_tasks_content = new_tasks_content.replace("## 📖 Task History", f"## 📖 Task History\n{history_line}")
+# --- LLM Communication ---
 
-    TASKS_FILE.write_text(new_tasks_content)
-    print("Updated TASKS.md")
+def call_llm(messages, model, retries=3):
+    """Call GitHub Models API via gh CLI."""
+    payload = {
+        "model": model,
+        "messages": messages,
+        "tools": TOOL_DEFS,
+        "tool_choice": "auto",
+        "temperature": 0.1
+    }
     
-    # Commit changes
-    commit_changes(f"Agent: completed task '{next_task}'")
+    payload_file = "/tmp/agent_payload.json"
+    with open(payload_file, "w") as f:
+        json.dump(payload, f)
+    
+    for i in range(retries):
+        stdout, stderr, code = run_command(f"gh api {API_ENDPOINT} --method POST --input {payload_file}")
+        if code == 0:
+            try:
+                return json.loads(stdout)
+            except json.JSONDecodeError:
+                log("Error: Failed to decode LLM response JSON.")
+                return None
+        else:
+            log(f"LLM call failed (attempt {i+1}/{retries}): {stderr}")
+            if "rate limit" in stderr.lower() or "429" in stderr:
+                time.sleep(10 * (i + 1))
+            else:
+                time.sleep(2)
+    return None
+
+# --- Task Management ---
+
+def get_next_task():
+    try:
+        content = TASKS_FILE.read_text()
+        match = re.search(r"## 🚀 Active Tasks\n(.*?)\n##", content, re.DOTALL)
+        if match:
+            for line in match.group(1).strip().split("\n"):
+                if line.startswith("- [ ]"):
+                    return line[5:].strip()
+    except Exception as e:
+        log(f"Error reading tasks: {str(e)}")
+    return None
+
+def finalize_task(task, status, report):
+    """Mark task as complete and write diary entry."""
+    now = datetime.now()
+    log(f"Finalizing task: {status}")
+    
+    # Write Diary
+    slug = re.sub(r'[^a-z0-9]+', '-', task.lower()).strip('-')
+    diary_dir = DIARY_DIR / now.strftime("%Y/%m/%d")
+    diary_dir.mkdir(parents=True, exist_ok=True)
+    diary_path = diary_dir / f"{now.strftime('%H%M%S')}_{slug}.md"
+    
+    diary_content = f"# 📔 Progress Report - {now.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    diary_content += f"## 🎯 Task: {task}\n\n"
+    diary_content += f"**Status**: {status}\n\n"
+    diary_content += "## 📝 Report\n\n" + report
+    diary_path.write_text(diary_content)
+    
+    # Update TASKS.md
+    try:
+        content = TASKS_FILE.read_text()
+        content = content.replace(f"- [ ] {task}", f"- [x] {task}")
+        if "## 📖 Task History" in content:
+            history_line = f"- [x] {task} ({now.strftime('%Y-%m-%d')})"
+            if history_line not in content:
+                content = content.replace("## 📖 Task History", f"## 📖 Task History\n{history_line}")
+        TASKS_FILE.write_text(content)
+    except Exception as e:
+        log(f"Error updating tasks: {str(e)}")
+
+# --- Main Loop ---
+
+def main():
+    log("AutonomousORG Agent starting.")
+    
+    model = select_model()
+    log(f"Selected model: {model}")
+    
+    # Identity
+    run_command(f'git config user.name "{model.split("/")[-1]} (Autonomous Agent)"')
+    run_command(f'git config user.email "agent@autonomousorg.com"')
+
+    task = get_next_task()
+    if not task:
+        log("No active tasks found.")
+        return
+
+    log(f"Active Task: {task}")
+    
+    messages = [
+        {"role": "system", "content": PROMPT_FILE.read_text()},
+        {"role": "user", "content": f"Execute: {task}"}
+    ]
+
+    turn = 0
+    while turn < MAX_TURNS:
+        turn += 1
+        log(f"Turn {turn}/{MAX_TURNS}")
+        
+        response = call_llm(messages, model)
+        if not response:
+            log("Critical Error: LLM returned no response.")
+            break
+            
+        message = response['choices'][0]['message']
+        messages.append(message)
+        
+        if message.get('content'):
+            log(f"Agent: {message['content']}")
+            
+        tool_calls = message.get('tool_calls')
+        if not tool_calls:
+            log("Agent stopped without tool calls.")
+            break
+            
+        for tool_call in tool_calls:
+            name = tool_call['function']['name']
+            args = json.loads(tool_call['function']['arguments'])
+            log(f"Tool Call: {name}({json.dumps(args)})")
+            
+            if name in TOOLS:
+                result = TOOLS[name](**args)
+                
+                # Check for finish signal
+                if name == "finish":
+                    finalize_task(task, args.get('status', 'completed'), args['report'])
+                    log("Task finished.")
+                    return
+                
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call['id'],
+                    "name": name,
+                    "content": str(result)
+                })
+            else:
+                log(f"Error: Tool {name} not found.")
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call['id'],
+                    "name": name,
+                    "content": f"Error: Tool {name} not found."
+                })
+                
+    if turn >= MAX_TURNS:
+        log("Error: Reached MAX_TURNS.")
 
 if __name__ == "__main__":
     main()
