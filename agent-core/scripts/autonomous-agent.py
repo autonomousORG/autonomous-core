@@ -364,6 +364,11 @@ def main():
     model = select_model()
     log(f"Selected model: {model}")
     
+    # Configure local git identity for this agent session
+    model_name = model.replace("/", "-")
+    run_command(f'git config --local user.name "{model_name} (Autonomous Agent)"')
+    run_command(f'git config --local user.email "{model_name}@autonomousorg.com"')
+
     task = get_next_task()
     if not task:
         log("No active tasks found.")
